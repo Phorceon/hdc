@@ -1,0 +1,37 @@
+int classify(const vector<float>& flower_hv, const ClassPrototypes& prototypes) {
+    float score_versicolor = 0.0;
+    float score_setosa = 0.0;
+ 
+    for (int i = 0; i < flower_hv.size(); i++) {
+        score_versicolor += flower_hv[i] * prototypes.versicolor[i];
+        score_setosa += flower_hv[i] * prototypes.setosa[i];
+    }
+ 
+    if (score_versicolor >= score_setosa) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+ 
+void evaluate(const Dataset& test, const ClassPrototypes& prototypes) {
+    int correct = 0;
+ 
+    for (int i = 0; i < test.data.size(); i++) {
+        int predicted = classify(test.data[i], prototypes);
+        int actual = test.labels[i];
+ 
+        if (predicted == actual) {
+            correct++;
+        }
+ 
+        string predicted_name = (predicted == 0) ? "Iris-versicolor" : "Iris-setosa";
+        string actual_name = (actual == 0) ? "Iris-versicolor" : "Iris-setosa";
+        string result = (predicted == actual) ? "correct" : "wrong";
+ 
+        cout << "Sample " << i + 1 << ": " << predicted_name << " | " << actual_name << " | " << result << endl;
+    }
+ 
+    float accuracy = (float)correct / test.data.size() * 100.0;
+    cout << "\nAccuracy: " << correct << "/" << test.data.size() << " = " << accuracy << "%" << endl;
+}
