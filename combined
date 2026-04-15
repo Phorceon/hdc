@@ -1,0 +1,188 @@
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <sstream>
+#include <cstdlib>
+#include <cmath>
+using namespace std;
+ 
+// ── Structs ───────────────────────────────────────────────────
+struct Dataset {
+    vector<vector<float>> data;
+    vector<int> labels;
+};
+ 
+struct SplitResult {
+    Dataset train;
+    Dataset test;
+};
+ 
+struct ClassPrototypes {
+    vector<float> versicolor;
+    vector<float> setosa;
+};
+ 
+// ── Step 1: Encoding ──────────────────────────────────────────
+Dataset load_dataset(string filename) {
+    Dataset dataset;
+    ifstream file(filename.c_str());
+    string line;
+    if (!file.is_open()) {
+        cout << "Error opening file." << endl;
+        return dataset;
+    }
+    while (getline(file, line)) {
+        if (line == "") continue;
+        stringstream ss(line);
+        vector<float> row(4);
+        int label;
+        ss >> row[0] >> row[1] >> row[2] >> row[3] >> label;
+        dataset.data.push_back(row);
+        dataset.labels.push_back(label);
+    }
+    file.close();
+    return dataset;
+}
+ 
+vector<vector<float>> create_projection_matrix(int rows, int cols) {
+    vector<vector<float>> matrix(rows, vector<float>(cols));
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            matrix[i][j] = (rand() % 2 == 0) ? -1.0f : 1.0f;
+        }
+    }
+    return matrix;
+}
+ 
+vector<float> encode_sample(vector<float> sample, vector<vector<float>> projection) {
+    int output_dim = projection[0].size();
+    vector<float> hv(output_dim, 0.0f);
+    for (int j = 0; j < output_dim; j++) {
+        for (int i = 0; i < sample.size(); i++) {
+            hv[j] += sample[i] * projection[i][j];
+        }
+    }
+    return hv;
+}
+ 
+Dataset encode_dataset(Dataset original, vector<vector<float>> projection) {
+    Dataset encoded;
+    for (int i = 0; i < original.data.size(); i++) {
+        encoded.data.push_back(encode_sample(original.data[i], projection));
+        encoded.labels.push_back(original.labels[i]);
+    }
+    return encoded;
+}
+ 
+// ── Step 2: Splitting + Training ──────────────────────────────
+SplitResult split_dataset(const Dataset& input, int samples_per_class = 50, int train_percent = 80) {
+    SplitResult split;
+    int train_limit = (samples_per_class * train_percent) / 100;
+    for (size_t i = 0; i < input.data.size(); i++) {
+        int class_idx = i % samples_per_class;
+        if (class_idx < train_limit) {
+            split.train.data.push_back(input.data[i]);
+            split.train.labels.push_back(input.labels[i]);
+        } else {
+            split.test.data.push_back(input.data[i]);
+            split.test.labels.push_back(input.labels[i]);
+        }
+    }
+    return split;
+}
+ 
+void normalize(vector<float>& vec) {
+    float sum_sq = 0.0;
+    for (size_t i = 0; i < vec.size(); i++) {
+        sum_sq += vec[i] * vec[i];
+    }
+    float magnitude = sqrt(sum_sq);
+    if (magnitude > 0.0) {
+        for (size_t i = 0; i < vec.size(); i++) {
+            vec[i] /= magnitude;
+        }
+    }
+}
+ 
+ClassPrototypes train_classifier(const Dataset& train) {
+    int D = train.data[0].size();
+    ClassPrototypes prototypes;
+    prototypes.versicolor.assign(D, 0.0);
+    prototypes.setosa.assign(D, 0.0);
+    for (size_t i = 0; i < train.data.size(); i++) {
+        if (train.labels[i] == 0) {
+            for (int d = 0; d < D; d++) {
+                prototypes.versicolor[d] += train.data[i][d];
+            }
+        } else {
+            for (int d = 0; d < D; d++) {
+                prototypes.setosa[d] += train.data[i][d];
+            }
+        }
+    }
+    normalize(prototypes.versicolor);
+    normalize(prototypes.setosa);
+    return prototypes;
+}
+ 
+// ── Step 3: Classification ────────────────────────────────────
+int classify(const vector<float>& flower_hv, const ClassPrototypes& prototypes) {
+    float score_versicolor = 0.0;
+    float score_setosa = 0.0;
+ 
+    for (int i = 0; i < flower_hv.size(); i++) {
+        score_versicolor += flower_hv[i] * prototypes.versicolor[i];
+        score_setosa += flower_hv[i] * prototypes.setosa[i];
+    }
+ 
+    if (score_versicolor >= score_setosa) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+ 
+void evaluate(const Dataset& test, const ClassPrototypes& prototypes) {
+    int correct = 0;
+ 
+    for (int i = 0; i < test.data.size(); i++) {
+        int predicted = classify(test.data[i], prototypes);
+        int actual = test.labels[i];
+ 
+        if (predicted == actual) {
+            correct++;
+        }
+ 
+        string predicted_name = (predicted == 0) ? "Iris-versicolor" : "Iris-setosa";
+        string actual_name = (actual == 0) ? "Iris-versicolor" : "Iris-setosa";
+        string result = (predicted == actual) ? "correct" : "wrong";
+ 
+        cout << "Sample " << i + 1 << ": " << predicted_name << " | " << actual_name << " | " << result << endl;
+    }
+ 
+    float accuracy = (float)correct / test.data.size() * 100.0;
+    cout << "\nAccuracy: " << correct << "/" << test.data.size() << " = " << accuracy << "%" << endl;
+}
+ 
+// ── Main ──────────────────────────────────────────────────────
+int main() {
+    srand(1);
+ 
+    Dataset original = load_dataset("iris_binary.txt");
+    if (original.data.size() == 0) return 1;
+    cout << "Loaded " << original.data.size() << " samples." << endl;
+ 
+    vector<vector<float>> projection = create_projection_matrix(4, 5);
+    Dataset encoded = encode_dataset(original, projection);
+ 
+    SplitResult split = split_dataset(encoded);
+ 
+    ClassPrototypes prototypes = train_classifier(split.train);
+ 
+    cout << endl;
+    evaluate(split.test, prototypes);
+ 
+    return 0;
+}
+ 
+
