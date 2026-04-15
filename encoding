@@ -1,0 +1,106 @@
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <sstream>
+#include <cstdlib>
+
+using namespace std;
+
+struct Dataset {
+    vector<vector<float>> data;
+    vector<int> labels;
+};
+
+Dataset load_dataset(string filename) {
+    Dataset dataset;
+    ifstream file(filename.c_str());
+    string line;
+
+    if (!file.is_open()) {
+        cout << "Error opening file." << endl;
+        return dataset;
+    }
+
+    while (getline(file, line)) {
+        if (line == "") continue;
+        stringstream ss(line);
+        vector<float> row(4);
+        int label;
+        ss >> row[0] >> row[1] >> row[2] >> row[3] >> label;
+        dataset.data.push_back(row);
+        dataset.labels.push_back(label);
+    }
+
+    file.close();
+    return dataset;
+}
+
+vector<vector<float>> create_projection_matrix(int rows, int cols) {
+    vector<vector<float>> matrix(rows, vector<float>(cols));
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            matrix[i][j] = (rand() % 2 == 0) ? -1.0f : 1.0f;
+        }
+    }
+    return matrix;
+}
+
+vector<float> encode_sample(vector<float> sample, vector<vector<float>> projection) {
+    int output_dim = projection[0].size();
+    vector<float> hv(output_dim, 0.0f);
+
+    for (int j = 0; j < output_dim; j++) {
+        for (int i = 0; i < sample.size(); i++) {
+            hv[j] += sample[i] * projection[i][j];
+        }
+    }
+
+    return hv;
+}
+
+Dataset encode_dataset(Dataset original, vector<vector<float>> projection) {
+    Dataset encoded;
+    for (int i = 0; i < original.data.size(); i++) {
+        encoded.data.push_back(encode_sample(original.data[i], projection));
+        encoded.labels.push_back(original.labels[i]);
+    }
+    return encoded;
+}
+
+void print_matrix(vector<vector<float>> matrix) {
+    for (int i = 0; i < matrix.size(); i++) {
+        for (int j = 0; j < matrix[i].size(); j++) {
+            cout << matrix[i][j] << "\t";
+        }
+        cout << endl;
+    }
+}
+
+void print_encoded(Dataset dataset, int count) {
+    for (int i = 0; i < count && i < dataset.data.size(); i++) {
+        cout << "Sample " << i + 1 << ": ";
+        for (int j = 0; j < dataset.data[i].size(); j++) {
+            cout << dataset.data[i][j] << " ";
+        }
+        cout << "| Label: " << dataset.labels[i] << endl;
+    }
+}
+
+int main() {
+    srand(1);
+
+    Dataset original = load_dataset("iris_binary.txt");
+    if (original.data.size() == 0) return 1;
+
+    vector<vector<float>> projection = create_projection_matrix(4, 5);
+    Dataset encoded = encode_dataset(original, projection);
+
+    cout << "Loaded " << original.data.size() << " samples." << endl << endl;
+    cout << "Projection matrix (4 x 5):" << endl;
+    print_matrix(projection);
+    cout << endl << "First 10 encoded samples:" << endl;
+    print_encoded(encoded, 10);
+
+    return 0;
+}
+
