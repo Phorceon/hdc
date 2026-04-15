@@ -1,0 +1,81 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+
+using namespace std;
+
+struct Dataset {
+    vector<vector<float>> data;
+    vector<int> labels;
+};
+
+struct SplitResult {
+    Dataset train;
+    Dataset test;
+};
+
+struct ClassPrototypes {
+    vector<float> versicolor;
+    vector<float> setosa;
+};
+
+SplitResult split_dataset(const Dataset& input, int samples_per_class = 50, int train_percent = 80) {
+    SplitResult split;
+    int train_limit = (samples_per_class * train_percent) / 100;
+
+    for (size_t i = 0; i < input.data.size(); i++) {
+        int class_idx = i % samples_per_class; 
+
+        if (class_idx < train_limit) {
+            split.train.data.push_back(input.data[i]);
+            split.train.labels.push_back(input.labels[i]);
+        } else {
+            split.test.data.push_back(input.data[i]);
+            split.test.labels.push_back(input.labels[i]);
+        }
+    }
+
+    return split; 
+}
+
+void normalize(vector<float>& vec) {
+    float sum_sq = 0.0;
+    for (size_t i = 0; i < vec.size(); i++) {
+        sum_sq += vec[i] * vec[i];
+    }
+    
+    float magnitude = sqrt(sum_sq);
+    if (magnitude > 0.0) {
+        for (size_t i = 0; i < vec.size(); i++) {
+            vec[i] /= magnitude;
+        }
+    }
+}
+
+
+ClassPrototypes train_classifier(const Dataset& train) {
+    int D = train.data[0].size();
+
+    ClassPrototypes prototypes;
+    prototypes.versicolor.assign(D, 0.0);
+    prototypes.setosa.assign(D, 0.0);
+
+    for (size_t i = 0; i < train.data.size(); i++) {
+        if (train.labels[i] == 0) {
+            for (int d = 0; d < D; d++) {
+                prototypes.versicolor[d] += train.data[i][d];
+            }
+        } else {
+            for (int d = 0; d < D; d++) {
+                prototypes.setosa[d] += train.data[i][d];
+            }
+        }
+    }
+
+    normalize(prototypes.versicolor);
+    normalize(prototypes.setosa);
+
+    return prototypes;
+}
+
+
