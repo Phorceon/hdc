@@ -1,0 +1,5 @@
+# compiled binaries
+mnist_retrain
+mnist_classify
+mnist_uno_ref
+verify_roundtrip
