@@ -1,9 +1,6 @@
 #include <cstdio>
-#include <cstdlib>
 #include <cmath>
 #include <vector>
-#include <string>
-#include <stdint.h>
 using namespace std;
 
 #include "../variables.txt"
@@ -11,17 +8,19 @@ using namespace std;
 static const int INPUT_DIM   = 784;
 static const int HD_DIM      = 100;
 static const int NUM_CLASSES = 10;
+static const int MAX_EPOCHS  = 100;
+static const float TARGET_PCT = 85.0f;
 
-static uint32_t swap_endian(uint32_t x) {
+static unsigned swap_endian(unsigned x) {
     return ((x >> 24) & 0xFF) |
            ((x >> 8)  & 0xFF00) |
            ((x << 8)  & 0xFF0000) |
            ((x << 24) & 0xFF000000);
 }
 
-static void load_mnist_images(const char* path, vector<uint8_t>& images, int& count) {
+static void load_mnist_images(const char* path, vector<unsigned char>& images, int& count) {
     FILE* f = fopen(path, "rb");
-    uint32_t magic, num, rows, cols;
+    unsigned magic, num, rows, cols;
     fread(&magic, 4, 1, f); magic = swap_endian(magic);
     fread(&num,   4, 1, f); num   = swap_endian(num);
     fread(&rows,  4, 1, f); rows  = swap_endian(rows);
@@ -32,9 +31,9 @@ static void load_mnist_images(const char* path, vector<uint8_t>& images, int& co
     fclose(f);
 }
 
-static void load_mnist_labels(const char* path, vector<uint8_t>& labels, int& count) {
+static void load_mnist_labels(const char* path, vector<unsigned char>& labels, int& count) {
     FILE* f = fopen(path, "rb");
-    uint32_t magic, num;
+    unsigned magic, num;
     fread(&magic, 4, 1, f); magic = swap_endian(magic);
     fread(&num,   4, 1, f); num   = swap_endian(num);
     count = num;
@@ -43,7 +42,7 @@ static void load_mnist_labels(const char* path, vector<uint8_t>& labels, int& co
     fclose(f);
 }
 
-static vector<float> encode(const vector<uint8_t>& images, int img_idx) {
+static vector<float> encode(const vector<unsigned char>& images, int img_idx) {
     vector<float> hv(HD_DIM, 0.0f);
     for (int j = 0; j < HD_DIM; j++) {
         float sum = 0.0f;
@@ -111,27 +110,23 @@ static int evaluate(const vector<vector<float>>& encoded,
     return correct;
 }
 
-static string check_early_stop(int val_correct, int val_total, float target_pct) {
+static const char* check_early_stop(int val_correct, int val_total, float target_pct) {
     float acc = (float)val_correct / val_total * 100.0f;
     if (acc >= target_pct) {
-        return "target accuracy " + to_string((int)target_pct) +
-               "% reached on validation";
+        return "target accuracy reached on validation";
     }
     return "";
 }
 
-int main(int argc, char** argv) {
-    int   MAX_EPOCHS = (argc > 1) ? atoi(argv[1])         : 100;
-    float TARGET_PCT = (argc > 2) ? (float)atof(argv[2])  : 90.0f;
-
+int main() {
     printf("HDC training from scratch with target-accuracy early stopping\n");
     printf("  Using professor's projection matrix from variables.txt\n");
     printf("  Pure float — no quantization/packing optimizations\n");
     printf("  max_epochs=%d  target_accuracy=%.1f%% (on validation)\n\n",
            MAX_EPOCHS, TARGET_PCT);
 
-    vector<uint8_t> train_imgs, test_imgs;
-    vector<uint8_t> train_lbls, test_lbls;
+    vector<unsigned char> train_imgs, test_imgs;
+    vector<unsigned char> train_lbls, test_lbls;
     int tr_n, tl_n, te_n, tel_n;
     load_mnist_images("mnist_data/train-images.idx3-ubyte", train_imgs, tr_n);
     load_mnist_labels("mnist_data/train-labels.idx1-ubyte", train_lbls, tl_n);
@@ -187,7 +182,7 @@ int main(int argc, char** argv) {
            val_start, val_size, 100.0f * val_start / val_size);
 
     int stopped_epoch = -1;
-    string stop_reason;
+    const char* stop_reason = "";
     vector<int> order(train_size);
     for (int i = 0; i < train_size; i++) order[i] = i;
 
@@ -197,13 +192,13 @@ int main(int argc, char** argv) {
 
         int tr_correct  = evaluate(tr_enc,  tr_y,  proto);
         int val_correct = evaluate(val_enc, val_y, proto);
-        string reason = check_early_stop(val_correct, val_size, TARGET_PCT);
+        const char* reason = check_early_stop(val_correct, val_size, TARGET_PCT);
 
         printf("%4d  %5d/%d = %5.1f%%   %5d/%d = %5.1f%%  (updates=%d)",
                epoch, tr_correct, train_size, 100.0f * tr_correct / train_size,
                val_correct, val_size, 100.0f * val_correct / val_size, updates);
 
-        if (!reason.empty()) {
+        if (reason[0] != '\0') {
             printf("  * TARGET REACHED\n");
             stopped_epoch = epoch;
             stop_reason = reason;
@@ -217,7 +212,7 @@ int main(int argc, char** argv) {
         stopped_epoch = MAX_EPOCHS;
         stop_reason = "reached max_epochs (target not reached on validation)";
     }
-    printf("EARLY STOP @ epoch %d: %s\n\n", stopped_epoch, stop_reason.c_str());
+    printf("EARLY STOP @ epoch %d: %s\n\n", stopped_epoch, stop_reason);
 
     printf("Final evaluation on official %d-image MNIST test set...\n", te_n);
     printf("Precomputing test encodings...\n");
