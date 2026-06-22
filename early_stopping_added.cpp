@@ -5,10 +5,10 @@ using namespace std;
 
 #include "../variables.txt"
 
-static const int INPUT_DIM   = 784;
-static const int HD_DIM      = 100;
-static const int NUM_CLASSES = 10;
-static const int MAX_EPOCHS  = 100;
+static const int INPUT_DIM    = 784;
+static const int HD_DIM       = 100;
+static const int NUM_CLASSES  = 10;
+static const int MAX_EPOCHS   = 100;
 static const float TARGET_PCT = 85.0f;
 
 static unsigned swap_endian(unsigned x) {
@@ -110,18 +110,9 @@ static int evaluate(const vector<vector<float>>& encoded,
     return correct;
 }
 
-static const char* check_early_stop(int val_correct, int val_total, float target_pct) {
-    float acc = (float)val_correct / val_total * 100.0f;
-    if (acc >= target_pct) {
-        return "target accuracy reached on validation";
-    }
-    return "";
-}
-
 int main() {
     printf("HDC training from scratch with target-accuracy early stopping\n");
     printf("  Using professor's projection matrix from variables.txt\n");
-    printf("  Pure float — no quantization/packing optimizations\n");
     printf("  max_epochs=%d  target_accuracy=%.1f%% (on validation)\n\n",
            MAX_EPOCHS, TARGET_PCT);
 
@@ -132,38 +123,19 @@ int main() {
     load_mnist_labels("mnist_data/train-labels.idx1-ubyte", train_lbls, tl_n);
     load_mnist_images("mnist_data/t10k-images.idx3-ubyte",  test_imgs,  te_n);
     load_mnist_labels("mnist_data/t10k-labels.idx1-ubyte",  test_lbls, tel_n);
-    printf("Loaded %d train images, %d test images from mnist_data/\n", tr_n, te_n);
+    printf("Loaded %d train images, %d test images\n\n", tr_n, te_n);
 
-    int train_size = 0, val_size = 0;
+    vector<vector<float>> tr_enc, val_enc;
+    vector<int> tr_y, val_y;
     for (int i = 0; i < tr_n; i++) {
-        if (i % 5 == 0) val_size++;
-        else            train_size++;
+        vector<float> hv = encode(train_imgs, i);
+        normalize_f(hv);
+        if (i % 5 == 0) { val_enc.push_back(hv); val_y.push_back(train_lbls[i]); }
+        else            { tr_enc.push_back(hv); tr_y.push_back(train_lbls[i]); }
     }
-    printf("Split (deterministic, every 5th -> val): %d train, %d validation, %d test (official MNIST test)\n\n",
-           train_size, val_size, te_n);
-
-    printf("Precomputing encodings for %d train + %d validation images...\n",
-           train_size, val_size);
-    vector<vector<float>> tr_enc(train_size);
-    vector<int>            tr_y(train_size);
-    vector<vector<float>> val_enc(val_size);
-    vector<int>            val_y(val_size);
-
-    int ti = 0, vi = 0;
-    for (int i = 0; i < tr_n; i++) {
-        if (i % 5 == 0) {
-            val_enc[vi] = encode(train_imgs, i);
-            normalize_f(val_enc[vi]);
-            val_y[vi]   = train_lbls[i];
-            vi++;
-        } else {
-            tr_enc[ti] = encode(train_imgs, i);
-            normalize_f(tr_enc[ti]);
-            tr_y[ti]   = train_lbls[i];
-            ti++;
-        }
-    }
-    printf("done\n\n");
+    int train_size = (int)tr_enc.size();
+    int val_size   = (int)val_enc.size();
+    printf("Split: %d train, %d validation, %d test\n\n", train_size, val_size, te_n);
 
     vector<vector<float>> proto(NUM_CLASSES, vector<float>(HD_DIM, 0.0f));
     for (int i = 0; i < train_size; i++) {
@@ -172,52 +144,39 @@ int main() {
     }
     for (int c = 0; c < NUM_CLASSES; c++) normalize_f(proto[c]);
 
-    int tr_start  = evaluate(tr_enc,  tr_y,  proto);
-    int val_start = evaluate(val_enc, val_y, proto);
-    printf("Training with early stopping (target=%.1f%% on validation)\n", TARGET_PCT);
-    printf("Max epochs: %d\n\n", MAX_EPOCHS);
     printf("epoch  train_acc            val_acc\n");
-    printf("%4d  %5d/%d = %5.1f%%   %5d/%d = %5.1f%%  (initial bundled)\n",
-           0, tr_start, train_size, 100.0f * tr_start / train_size,
-           val_start, val_size, 100.0f * val_start / val_size);
+    int val_correct = evaluate(val_enc, val_y, proto);
+    printf("%4d  %5d/%d = %5.1f%%   %5d/%d = %5.1f%%\n",
+           0, evaluate(tr_enc, tr_y, proto), train_size,
+           100.0f * evaluate(tr_enc, tr_y, proto) / train_size,
+           val_correct, val_size, 100.0f * val_correct / val_size);
 
-    int stopped_epoch = -1;
-    const char* stop_reason = "";
     vector<int> order(train_size);
     for (int i = 0; i < train_size; i++) order[i] = i;
 
-    for (int epoch = 1; epoch <= MAX_EPOCHS; epoch++) {
+    int epoch;
+    for (epoch = 1; epoch <= MAX_EPOCHS; epoch++) {
         int offset = (epoch * 481) % train_size;
         int updates = retrain_one_epoch(tr_enc, tr_y, order, offset, proto);
 
         int tr_correct  = evaluate(tr_enc,  tr_y,  proto);
-        int val_correct = evaluate(val_enc, val_y, proto);
-        const char* reason = check_early_stop(val_correct, val_size, TARGET_PCT);
+        val_correct     = evaluate(val_enc, val_y, proto);
 
         printf("%4d  %5d/%d = %5.1f%%   %5d/%d = %5.1f%%  (updates=%d)",
                epoch, tr_correct, train_size, 100.0f * tr_correct / train_size,
                val_correct, val_size, 100.0f * val_correct / val_size, updates);
 
-        if (reason[0] != '\0') {
+        if (100.0f * val_correct / val_size >= TARGET_PCT) {
             printf("  * TARGET REACHED\n");
-            stopped_epoch = epoch;
-            stop_reason = reason;
             break;
         }
         printf("\n");
     }
+    printf("\nEARLY STOP @ epoch %d\n\n", epoch);
 
-    printf("\n");
-    if (stopped_epoch < 0) {
-        stopped_epoch = MAX_EPOCHS;
-        stop_reason = "reached max_epochs (target not reached on validation)";
-    }
-    printf("EARLY STOP @ epoch %d: %s\n\n", stopped_epoch, stop_reason);
-
-    printf("Final evaluation on official %d-image MNIST test set...\n", te_n);
-    printf("Precomputing test encodings...\n");
+    printf("Final evaluation on %d-image MNIST test set...\n", te_n);
     vector<vector<float>> te_enc(te_n);
-    vector<int>            te_y(te_n);
+    vector<int> te_y(te_n);
     for (int i = 0; i < te_n; i++) {
         te_enc[i] = encode(test_imgs, i);
         normalize_f(te_enc[i]);
@@ -245,7 +204,7 @@ int main() {
     printf("\n-----------------------------------------------\n");
     printf("Professor's prototypes (cited):   7070/10000 = 70.7%%\n");
     printf("Ours (early stop @ epoch %d):    %d/%d = %.1f%%\n",
-           stopped_epoch, total_correct, te_n, ours_pct);
+           epoch, total_correct, te_n, ours_pct);
     printf("Delta: %+.1f percentage points\n", ours_pct - 70.7f);
     printf("-----------------------------------------------\n");
 
